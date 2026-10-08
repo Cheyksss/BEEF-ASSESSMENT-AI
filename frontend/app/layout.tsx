@@ -7,8 +7,8 @@ import { Navbar } from "@/components/Navbar"
 const inter = Inter({ subsets: ["latin"] })
 
 export const metadata: Metadata = {
-  title: "MeatScan AI | Automated Beef Quality Assessment",
-  description: "Computer vision and ReXNet-150 machine learning evaluation for beef freshness, marbling, and Meat Quality Score (MQS).",
+  title: "",
+  description: "Computer vision and machine learning evaluation for beef freshness, marbling, and Meat Quality Score (MQS).",
 }
 
 export default function RootLayout({

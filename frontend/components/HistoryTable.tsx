@@ -12,6 +12,20 @@ interface HistoryTableProps {
   onDelete?: (id: string) => void
 }
 
+const SPLIT_MARBLING_POINTS: Record<string, number> = {
+  small: 20,
+  slight: 30,
+  modest: 40,
+  moderate: 50,
+  slightly_abundant: 60,
+}
+
+export function calculateSplitScore(marbling: string, fatRatio: number): number {
+  const marblingPoints = SPLIT_MARBLING_POINTS[marbling?.toLowerCase?.()] ?? 20
+  const fatPoints = Math.min(Number(fatRatio || 0) * 2, 40)
+  return Math.round((marblingPoints + fatPoints) * 10) / 10
+}
+
 export function HistoryTable({ assessments, onDelete }: HistoryTableProps) {
   const getMqsBadge = (score: number) => {
     if (score >= 76) {
@@ -35,6 +49,34 @@ export function HistoryTable({ assessments, onDelete }: HistoryTableProps) {
     }
   }
 
+  const getSplitScoreBadge = (score: number) => {
+    if (score >= 80) {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-500/10 text-emerald-500 border border-emerald-500/20">
+          {score.toFixed(1)} / 100
+        </span>
+      )
+    } else if (score >= 65) {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-500/10 text-amber-500 border border-amber-500/20">
+          {score.toFixed(1)} / 100
+        </span>
+      )
+    } else if (score >= 45) {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-blue-500/10 text-blue-500 border border-blue-500/20">
+          {score.toFixed(1)} / 100
+        </span>
+      )
+    } else {
+      return (
+        <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-rose-500/10 text-rose-500 border border-rose-500/20">
+          {score.toFixed(1)} / 100
+        </span>
+      )
+    }
+  }
+
   return (
     <div className="w-full overflow-x-auto rounded-2xl border border-border bg-card/60 backdrop-blur-md shadow-md">
       <table className="w-full text-left text-sm">
@@ -43,6 +85,7 @@ export function HistoryTable({ assessments, onDelete }: HistoryTableProps) {
             <th className="px-4 py-3.5">Image</th>
             <th className="px-4 py-3.5">Date / Time</th>
             <th className="px-4 py-3.5">MQS Score</th>
+            <th className="px-4 py-3.5">Split Score</th>
             <th className="px-4 py-3.5">Freshness</th>
             <th className="px-4 py-3.5">Marbling</th>
             <th className="px-4 py-3.5">Fat Ratio</th>
@@ -59,6 +102,7 @@ export function HistoryTable({ assessments, onDelete }: HistoryTableProps) {
               hour: "2-digit",
               minute: "2-digit",
             })
+            const splitScore = calculateSplitScore(item.marbling, item.fat_ratio)
 
             return (
               <tr
@@ -83,6 +127,9 @@ export function HistoryTable({ assessments, onDelete }: HistoryTableProps) {
                 </td>
                 <td className="px-4 py-3">
                   {getMqsBadge(item.meat_quality_score)}
+                </td>
+                <td className="px-4 py-3">
+                  {getSplitScoreBadge(splitScore)}
                 </td>
                 <td className="px-4 py-3">
                   <span

@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
 import { Card, CardContent, CardDescription, CardFooter, CardHeader, CardTitle } from "@/components/ui/card"
-import { ShieldCheck, Mail, Lock, AlertCircle, ArrowRight, Beef, CheckCircle2 } from "lucide-react"
+import { ShieldCheck, Mail, Lock, AlertCircle, ArrowRight, CheckCircle2 } from "lucide-react"
 
 export function LoginPage() {
   const [isSignUp, setIsSignUp] = useState(false)
@@ -61,18 +61,7 @@ export function LoginPage() {
   return (
     <div className="min-h-[85vh] flex items-center justify-center p-4">
       <div className="w-full max-w-md">
-        {/* Glow Header */}
-        <div className="text-center mb-8 space-y-2">
-          <div className="inline-flex items-center justify-center w-14 h-14 rounded-2xl bg-gradient-to-tr from-red-600 via-rose-500 to-amber-500 shadow-lg shadow-red-500/20 text-white mb-3">
-            <Beef className="w-8 h-8" />
-          </div>
-          <h1 className="text-3xl font-extrabold tracking-tight text-foreground">
-            MeatScan AI
-          </h1>
-          <p className="text-sm text-muted-foreground">
-            Automated Beef Quality Evaluation & MQS Scoring Platform
-          </p>
-        </div>
+
 
         <Card className="border border-border/80 shadow-2xl backdrop-blur-xl bg-card/90">
           <CardHeader className="space-y-1 pb-4">
