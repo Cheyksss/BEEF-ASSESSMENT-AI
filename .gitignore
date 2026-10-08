@@ -1,0 +1,66 @@
+# Node.js & Frontend dependencies
+node_modules/
+frontend/node_modules/
+.pnp
+.pnp.js
+
+# Frontend builds & caches
+frontend/.next/
+frontend/out/
+frontend/build/
+*.tsbuildinfo
+.vercel/
+
+# Environment files
+.env
+.env.local
+.env.*.local
+frontend/.env.local
+backend/.env
+
+# Python Virtual Environments
+backend/venv/
+venv/
+ENV/
+env/
+.venv/
+
+# Python Bytecode & Cache
+__pycache__/
+backend/__pycache__/
+app/**/__pycache__/
+*.py[cod]
+*$py.class
+*.so
+
+# Python Testing & Profiling Artifacts
+.pytest_cache/
+backend/.pytest_cache/
+.coverage
+htmlcov/
+.hypothesis/
+backend/.hypothesis/
+
+# Local Assessment Database & Uploaded Images
+backend/data/*.db
+backend/static/uploads/*
+!backend/static/uploads/.gitkeep
+!backend/data/.gitkeep
+
+# Logs & Temporary files
+*.log
+logs/
+*.tmp
+*.bak
+
+# OS & Editor generated files
+.DS_Store
+Thumbs.db
+
+# Archives & Temporary zip bundles
+*.zip
+drive-download-*.zip
+
+# Preserve trained model weights in repository root
+!rexnet150_freshness_best.pth
+!rexnet150_marbling_best.pth
