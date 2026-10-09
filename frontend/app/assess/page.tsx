@@ -90,11 +90,10 @@ export default function AssessPage() {
                       setInputMode("upload")
                       handleClear()
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                      inputMode === "upload"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${inputMode === "upload"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     <UploadCloud className="w-3.5 h-3.5" />
                     File Upload
@@ -105,11 +104,10 @@ export default function AssessPage() {
                       setInputMode("camera")
                       handleClear()
                     }}
-                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${
-                      inputMode === "camera"
-                        ? "bg-background text-foreground shadow-sm"
-                        : "text-muted-foreground hover:text-foreground"
-                    }`}
+                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md transition-all ${inputMode === "camera"
+                      ? "bg-background text-foreground shadow-sm"
+                      : "text-muted-foreground hover:text-foreground"
+                      }`}
                   >
                     <Camera className="w-3.5 h-3.5" />
                     Live Camera
@@ -117,7 +115,8 @@ export default function AssessPage() {
                 </div>
               </div>
               <CardDescription>
-                Ensure clear illumination, minimal specular glare, and centered placement of the cut.
+                Ensure clear illumination, minimal specular glare, centered and top-down placement of the cut.
+                <br /><small>*Disclaimer: Upload images of ribeye cuts for best performance; however, you may use other cuts at your discretion.</small>
               </CardDescription>
             </CardHeader>
 
