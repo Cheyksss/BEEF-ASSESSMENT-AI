@@ -115,8 +115,15 @@ export default function AssessPage() {
                 </div>
               </div>
               <CardDescription>
-                Ensure clear illumination, minimal specular glare, centered and top-down placement of the cut.
-                <br /><small>*Disclaimer: Upload images of ribeye cuts for best performance; however, you may use other cuts at your discretion.</small>
+                LIMITATIONS:
+                <br />1. Make sure the beef is well-lit with even lighting (avoiding dark shadows).
+                <br />2. Free of shiny light reflections or camera glare.
+                <br />3. Taken directly from above with the cut centered.
+                <br />
+                <br />
+                <small className="text-xs text-muted-foreground/80 block mt-1">
+                  *Disclaimer: Upload images of ribeye cuts for best performance; however, you may use other cuts at your discretion.
+                </small>
               </CardDescription>
             </CardHeader>
 
@@ -150,7 +157,7 @@ export default function AssessPage() {
                   {isProcessing ? (
                     <span className="flex items-center gap-2">
                       <RefreshCw className="w-4 h-4 animate-spin" />
-                      Analyzing Neural Representations...
+                      Loading
                     </span>
                   ) : (
                     <span className="flex items-center gap-2">
