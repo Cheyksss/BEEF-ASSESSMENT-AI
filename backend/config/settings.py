@@ -36,6 +36,10 @@ class Settings:
         "MARBLING_MODEL_PATH",
         "../rexnet150_marbling_best.pth",
     )
+    BIREFNET_MODEL: str = os.getenv(
+        "BIREFNET_MODEL",
+        "birefnet-general-lite",
+    )
 
     # Supabase configuration
     SUPABASE_URL: str = os.getenv("SUPABASE_URL", "")

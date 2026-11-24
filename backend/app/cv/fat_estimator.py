@@ -3,14 +3,15 @@ Computer vision module for HSV-based fat ratio estimation.
 Uses rembg for background removal, morphological cleaning, and HSV color thresholding.
 """
 
+import os
 import logging
 from dataclasses import dataclass
 from time import perf_counter
-from typing import Dict, Any
+from typing import Dict, Any, Optional
 import numpy as np
 import cv2
 from PIL import Image
-from rembg import remove
+from rembg import remove, new_session
 
 from app.scoring.mappers import calculate_fat_ratio, categorize_fat_ratio
 
@@ -30,21 +31,40 @@ class SegmentedForeground:
 class FatRatioEstimator:
     """
     Estimates visible intramuscular and subcutaneous fat ratio from beef images
-    using rembg segmentation and HSV thresholding.
+    using persistent BiRefNet/rembg segmentation and HSV thresholding.
     """
 
-    def __init__(self):
+    def __init__(self, model_name: Optional[str] = None):
         # HSV bounds for fat detection: brightness >= 120, low-to-medium saturation
         self.lower_fat = np.array([0, 0, 120], dtype=np.uint8)
         self.upper_fat = np.array([180, 120, 255], dtype=np.uint8)
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
+        self.model_name = model_name or os.getenv("BIREFNET_MODEL", "birefnet-general-lite")
+        self.session = None
+        self._session_initialized = False
+
+    def get_session(self):
+        """Lazy load and persist the rembg/BiRefNet session across requests."""
+        if not self._session_initialized:
+            try:
+                self.session = new_session(self.model_name)
+                logger.info(f"Background segmentation session initialized with '{self.model_name}'.")
+            except Exception as e:
+                logger.warning(
+                    f"Failed to initialize '{self.model_name}' session: {e}. "
+                    "Falling back to default rembg session."
+                )
+                self.session = None
+            self._session_initialized = True
+        return self.session
 
     def segment(self, image: Image.Image) -> SegmentedForeground:
         """Extract the prominent foreground and reject images with no usable object."""
         resized = image.convert("RGB").resize((800, 800), Image.Resampling.BILINEAR)
         try:
             background_removal_started = perf_counter()
-            removed = remove(resized)
+            session = self.get_session()
+            removed = remove(resized, session=session)
             background_removal_ms = (perf_counter() - background_removal_started) * 1000
             rgba = np.asarray(removed)
         except Exception as e:
@@ -114,9 +134,18 @@ class FatRatioEstimator:
             }
         """
         # Reuse the segmentation performed before classification in the API route.
-        segmented = segmented or self.segment(image)
-        meat_mask = segmented.mask
-        rgb_np = segmented.rgb
+        try:
+            segmented = segmented or self.segment(image)
+            meat_mask = segmented.mask
+            rgb_np = segmented.rgb
+        except ValueError:
+            return {
+                "percent": 0.0,
+                "category": "None",
+                "score": 0.0,
+                "fat_pixels": 0,
+                "meat_pixels": 0,
+            }
 
         meat_pixels = int(cv2.countNonZero(meat_mask))
         if meat_pixels == 0:

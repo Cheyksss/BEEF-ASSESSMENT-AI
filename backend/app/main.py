@@ -10,6 +10,7 @@ import logging
 
 from config.settings import settings
 from app.models.loader import model_manager
+from app.cv.fat_estimator import fat_estimator
 from app.routes.predict import router as predict_router
 
 # Configure logging
@@ -37,6 +38,11 @@ async def lifespan(app: FastAPI):
         logger.info("Initializing and loading ReXNet-150 models...")
         model_manager.load_models()
         logger.info("ReXNet-150 models loaded successfully on %s", model_manager.get_device())
+
+        # Pre-initialize and warm up background segmentation session
+        logger.info("Pre-warming background segmentation session...")
+        fat_estimator.get_session()
+        logger.info("Background segmentation session ready")
 
         yield
 
