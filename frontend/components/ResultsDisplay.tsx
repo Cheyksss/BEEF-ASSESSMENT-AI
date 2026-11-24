@@ -95,6 +95,20 @@ export function ResultsDisplay({ results, imageUrl, onReset }: ResultsDisplayPro
     timeStyle: "short",
   })
 
+  const stageTimings = [
+    { label: "Freshness classifier", durationMs: results.freshness_inference_ms },
+    { label: "Marbling classifier", durationMs: results.marbling_inference_ms },
+    { label: "HSV fat estimation", durationMs: results.fat_estimation_ms },
+    { label: "Background removal", durationMs: results.background_removal_ms },
+  ].filter((stage): stage is { label: string; durationMs: number } =>
+    typeof stage.durationMs === "number"
+  )
+  const longestStage = stageTimings.reduce(
+    (longest, stage) => stage.durationMs > longest.durationMs ? stage : longest,
+    stageTimings[0]
+  )
+  const longestStageMs = longestStage?.durationMs ?? 0
+
   return (
     <div className="w-full space-y-6 animate-fade-in">
       {/* Scoring Mode Switcher Tabs */}
@@ -279,6 +293,52 @@ export function ResultsDisplay({ results, imageUrl, onReset }: ResultsDisplayPro
       {/* ========================================================================= */}
       {/* TAB 2: STANDARD MQS (UNIFIED VIEW - REVERTED WEIGHTS WITH FRESHNESS)       */}
       {/* ========================================================================= */}
+
+      {/* Assessment Metadata Footer */}
+      {(results.freshness_inference_ms !== undefined ||
+        results.marbling_inference_ms !== undefined ||
+        results.fat_estimation_ms !== undefined ||
+        results.background_removal_ms !== undefined) && (
+        <Card>
+          <CardHeader className="pb-3">
+            <CardTitle className="text-sm">Analysis Time by Stage</CardTitle>
+            <CardDescription>
+              Backend processing time for each step. The longest step is highlighted.
+            </CardDescription>
+            {longestStage && (
+              <Badge variant="outline" className="w-fit">
+                Slowest: {longestStage.label} ({(longestStage.durationMs / 1000).toFixed(2)} s)
+              </Badge>
+            )}
+          </CardHeader>
+          <CardContent className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            {stageTimings.map(({ label, durationMs }) => (
+              <div key={label} className="rounded-xl border border-border p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="text-xs text-muted-foreground">{label}</div>
+                  <div className="text-sm font-bold">{(durationMs / 1000).toFixed(2)} s</div>
+                </div>
+                <div
+                  className="mt-2 h-1.5 overflow-hidden rounded-full bg-muted"
+                  role="progressbar"
+                  aria-label={`${label} relative duration`}
+                  aria-valuemin={0}
+                  aria-valuemax={Math.max(longestStageMs, 1)}
+                  aria-valuenow={durationMs}
+                >
+                  <div
+                    className={`h-full rounded-full ${label === longestStage?.label ? "bg-amber-500" : "bg-primary"}`}
+                    style={{ width: `${longestStageMs > 0 ? (durationMs / longestStageMs) * 100 : 0}%` }}
+                  />
+                </div>
+              </div>
+            ))}
+            <p className="sm:col-span-2 text-xs text-muted-foreground">
+              Background-removal time is excluded from HSV fat-estimation time to avoid double counting.
+            </p>
+          </CardContent>
+        </Card>
+      )}
 
       {/* Assessment Metadata Footer */}
       <div className="p-4 rounded-2xl bg-card border border-border flex flex-wrap items-center justify-between gap-4 text-xs text-muted-foreground">

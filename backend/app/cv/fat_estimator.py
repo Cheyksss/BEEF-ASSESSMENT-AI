@@ -4,6 +4,8 @@ Uses rembg for background removal, morphological cleaning, and HSV color thresho
 """
 
 import logging
+from dataclasses import dataclass
+from time import perf_counter
 from typing import Dict, Any
 import numpy as np
 import cv2
@@ -13,6 +15,16 @@ from rembg import remove
 from app.scoring.mappers import calculate_fat_ratio, categorize_fat_ratio
 
 logger = logging.getLogger(__name__)
+
+
+@dataclass
+class SegmentedForeground:
+    """A resized input and its foreground mask, computed once per assessment."""
+
+    rgb: np.ndarray
+    mask: np.ndarray
+    crop: Image.Image
+    background_removal_ms: float
 
 
 class FatRatioEstimator:
@@ -27,7 +39,55 @@ class FatRatioEstimator:
         self.upper_fat = np.array([180, 120, 255], dtype=np.uint8)
         self.kernel = cv2.getStructuringElement(cv2.MORPH_ELLIPSE, (7, 7))
 
-    def estimate(self, image: Image.Image) -> Dict[str, Any]:
+    def segment(self, image: Image.Image) -> SegmentedForeground:
+        """Extract the prominent foreground and reject images with no usable object."""
+        resized = image.convert("RGB").resize((800, 800), Image.Resampling.BILINEAR)
+        try:
+            background_removal_started = perf_counter()
+            removed = remove(resized)
+            background_removal_ms = (perf_counter() - background_removal_started) * 1000
+            rgba = np.asarray(removed)
+        except Exception as e:
+            logger.error("Foreground segmentation failed: %s", e, exc_info=True)
+            raise RuntimeError(f"Foreground segmentation failed: {e}") from e
+
+        if rgba.ndim != 3 or rgba.shape[2] != 4:
+            raise ValueError("No foreground object was detected in the image")
+
+        rgb = rgba[:, :, :3]
+        mask = np.where(rgba[:, :, 3] > 127, 255, 0).astype(np.uint8)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, self.kernel)
+        mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, self.kernel)
+
+        contours, _ = cv2.findContours(mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        if not contours:
+            raise ValueError("No foreground object was detected in the image")
+        largest = max(contours, key=cv2.contourArea)
+        x, y, width, height = cv2.boundingRect(largest)
+        area_ratio = cv2.contourArea(largest) / float(mask.shape[0] * mask.shape[1])
+        if area_ratio < 0.01 or width < 32 or height < 32:
+            raise ValueError("No sufficiently large foreground object was detected")
+
+        # A small margin preserves the cut boundary while excluding most background.
+        pad_x, pad_y = max(8, int(width * 0.03)), max(8, int(height * 0.03))
+        left, top = max(0, x - pad_x), max(0, y - pad_y)
+        right, bottom = min(800, x + width + pad_x), min(800, y + height + pad_y)
+        crop_rgb = rgb[top:bottom, left:right].copy()
+        crop_mask = mask[top:bottom, left:right] > 0
+        crop_rgb[~crop_mask] = (127, 127, 127)
+        crop = Image.fromarray(crop_rgb)
+        return SegmentedForeground(
+            rgb=rgb,
+            mask=mask,
+            crop=crop,
+            background_removal_ms=background_removal_ms,
+        )
+
+    def estimate(
+        self,
+        image: Image.Image,
+        segmented: SegmentedForeground | None = None,
+    ) -> Dict[str, Any]:
         """
         Estimates the fat ratio percentage and category for a given beef image.
 
@@ -53,31 +113,10 @@ class FatRatioEstimator:
                 "meat_pixels": int
             }
         """
-        # Step 1: Resize to 800x800
-        if image.mode != "RGB":
-            image = image.convert("RGB")
-        resized_img = image.resize((800, 800), Image.Resampling.BILINEAR)
-
-        # Step 2: Remove background
-        try:
-            rgba_result = remove(resized_img)
-            rgba_np = np.array(rgba_result)
-        except Exception as e:
-            logger.error(f"rembg background removal failed: {str(e)}", exc_info=True)
-            raise RuntimeError(f"Background removal failed: {str(e)}") from e
-
-        # Step 3: Meat mask from alpha channel
-        if rgba_np.ndim == 3 and rgba_np.shape[2] == 4:
-            alpha = rgba_np[:, :, 3]
-            meat_mask = np.where(alpha > 127, 255, 0).astype(np.uint8)
-            rgb_np = rgba_np[:, :, :3]
-        else:
-            meat_mask = np.ones((800, 800), dtype=np.uint8) * 255
-            rgb_np = np.array(resized_img)
-
-        # Step 4: Morphological ops (close then open)
-        meat_mask = cv2.morphologyEx(meat_mask, cv2.MORPH_CLOSE, self.kernel)
-        meat_mask = cv2.morphologyEx(meat_mask, cv2.MORPH_OPEN, self.kernel)
+        # Reuse the segmentation performed before classification in the API route.
+        segmented = segmented or self.segment(image)
+        meat_mask = segmented.mask
+        rgb_np = segmented.rgb
 
         meat_pixels = int(cv2.countNonZero(meat_mask))
         if meat_pixels == 0:

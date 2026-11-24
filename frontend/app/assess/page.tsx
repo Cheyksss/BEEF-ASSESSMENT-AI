@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState } from "react"
+import React, { useEffect, useState } from "react"
 import { ProtectedRoute } from "@/components/ProtectedRoute"
 import { ImageUploadWidget } from "@/components/ImageUploadWidget"
 import { CameraCaptureWidget } from "@/components/CameraCaptureWidget"
@@ -19,6 +19,21 @@ export default function AssessPage() {
   const [isProcessing, setIsProcessing] = useState(false)
   const [results, setResults] = useState<PredictionResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [waitSeconds, setWaitSeconds] = useState(0)
+  const [progress, setProgress] = useState({ completed_stages: 0, total_stages: 7, stage: "Uploading image" })
+
+  useEffect(() => {
+    if (!isProcessing) return
+    const startedAt = Date.now()
+    const timer = window.setInterval(() => {
+      setWaitSeconds(Math.floor((Date.now() - startedAt) / 1000))
+    }, 250)
+    return () => window.clearInterval(timer)
+  }, [isProcessing])
+
+  const completedProgress = progress.total_stages > 0
+    ? (progress.completed_stages / progress.total_stages) * 100
+    : 0
 
   const handleImageSelected = (file: File) => {
     setSelectedFile(file)
@@ -38,9 +53,11 @@ export default function AssessPage() {
 
     try {
       setIsProcessing(true)
+      setWaitSeconds(0)
+      setProgress({ completed_stages: 0, total_stages: 7, stage: "Uploading image" })
       setError(null)
       const token = getAccessToken() || undefined
-      const data = await predictBeefQuality(selectedFile, token)
+      const data = await predictBeefQuality(selectedFile, token, setProgress)
       setResults(data)
     } catch (err: any) {
       if (err instanceof APIError) {
@@ -167,6 +184,30 @@ export default function AssessPage() {
                   )}
                 </Button>
               </div>
+              {isProcessing && (
+                <div className="space-y-2" role="status" aria-live="polite">
+                  <div className="flex justify-between text-xs text-muted-foreground">
+                    <span>{progress.stage}</span>
+                    <span>{progress.completed_stages}/{progress.total_stages} stages · {waitSeconds}s elapsed</span>
+                  </div>
+                  <div
+                    className="h-2.5 w-full overflow-hidden rounded-full bg-muted"
+                    role="progressbar"
+                    aria-label="Assessment stage progress"
+                    aria-valuemin={0}
+                    aria-valuemax={100}
+                    aria-valuenow={Math.floor(completedProgress)}
+                  >
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-red-600 via-rose-600 to-amber-500 transition-[width] duration-500"
+                      style={{ width: `${completedProgress}%` }}
+                    />
+                  </div>
+                  <p className="text-[11px] text-muted-foreground">
+                    The bar advances as backend stages complete. It does not estimate time within a stage.
+                  </p>
+                </div>
+              )}
             </CardContent>
           </Card>
         )}

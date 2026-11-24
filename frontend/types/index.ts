@@ -22,6 +22,16 @@ export interface PredictionResponse {
   meat_quality_score: number;
   assessment_id: string;
   image_url: string;
+  freshness_inference_ms?: number;
+  marbling_inference_ms?: number;
+  fat_estimation_ms?: number;
+  background_removal_ms?: number;
+}
+
+export interface PredictionProgress {
+  completed_stages: number;
+  total_stages: number;
+  stage: string;
 }
 
 // Assessment record type

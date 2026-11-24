@@ -4,11 +4,14 @@ Handles image uploads, authentication verification, ML inference, and result sto
 """
 
 import io
+import json
 import logging
+from time import perf_counter
 from typing import Optional
 from fastapi import APIRouter, File, UploadFile, Header, HTTPException, status
 from pydantic import BaseModel, Field
 from PIL import Image
+from starlette.responses import StreamingResponse
 
 from app.models.loader import model_manager
 from app.preprocessing.image_processor import preprocessor
@@ -37,6 +40,10 @@ class PredictionResponseSchema(BaseModel):
     meat_quality_score: float = Field(..., ge=0.0, le=100.0)
     assessment_id: str
     image_url: str
+    freshness_inference_ms: Optional[float] = None
+    marbling_inference_ms: Optional[float] = None
+    fat_estimation_ms: Optional[float] = None
+    background_removal_ms: Optional[float] = None
 
 
 class HealthResponseSchema(BaseModel):
@@ -44,13 +51,7 @@ class HealthResponseSchema(BaseModel):
     models_loaded: bool
 
 
-@router.post(
-    "/predict",
-    response_model=PredictionResponseSchema,
-    status_code=status.HTTP_200_OK,
-    summary="Assess beef quality from uploaded image",
-)
-async def predict_beef_quality(
+async def _predict_beef_quality_events(
     file: UploadFile = File(..., description="JPEG or PNG image file of beef cut"),
     authorization: Optional[str] = Header(None, description="Bearer <supabase_access_token>"),
 ):
@@ -65,6 +66,8 @@ async def predict_beef_quality(
     7. Persists image to Supabase Storage and assessment record in PostgreSQL
     8. Returns complete assessment metrics JSON
     """
+    yield {"type": "progress", "completed_stages": 0, "total_stages": 7, "stage": "Receiving image"}
+
     # 1. Check authorization (optional for guest usage)
     user_id = None
     if authorization:
@@ -121,6 +124,8 @@ async def predict_beef_quality(
             detail="Uploaded file is not a valid JPEG or PNG image",
         )
 
+    yield {"type": "progress", "completed_stages": 1, "total_stages": 7, "stage": "Image validated"}
+
     # Ensure models are loaded
     if not model_manager.is_loaded():
         logger.warning("Models not pre-loaded. Attempting loading...")
@@ -134,25 +139,54 @@ async def predict_beef_quality(
             )
 
     try:
+        # Segment once before any quality model runs. The same foreground is used
+        # for both CNN inputs and visible-fat measurement.
+        yield {"type": "progress", "completed_stages": 1, "total_stages": 7, "stage": "Removing background"}
+        fat_segmentation_started = perf_counter()
+        try:
+            segmented = fat_estimator.segment(pil_image)
+        except ValueError as e:
+            raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_ENTITY, detail=str(e))
+        fat_segmentation_ms = (perf_counter() - fat_segmentation_started) * 1000
+        yield {"type": "progress", "completed_stages": 2, "total_stages": 7, "stage": "Foreground ready"}
+
         device = model_manager.get_device()
 
-        # 5. Preprocess for classifiers (224x224 tensor) and reuse for both
-        tensor_224 = preprocessor.preprocess_for_classifier(pil_image, device=device)
+        # 5. Classify the isolated foreground crop instead of the full photograph.
+        tensor_224 = preprocessor.preprocess_for_classifier(segmented.crop, device=device)
+        yield {"type": "progress", "completed_stages": 3, "total_stages": 7, "stage": "Image prepared for classifiers"}
 
+        yield {"type": "progress", "completed_stages": 3, "total_stages": 7, "stage": "Running freshness classifier"}
+        freshness_started = perf_counter()
         freshness_res = freshness_predictor.predict(
             model=model_manager.get_freshness_model(),
             tensor=tensor_224,
             device=device,
         )
+        freshness_inference_ms = round((perf_counter() - freshness_started) * 1000, 2)
+        yield {"type": "progress", "completed_stages": 4, "total_stages": 7, "stage": "Freshness classification complete"}
 
+        yield {"type": "progress", "completed_stages": 4, "total_stages": 7, "stage": "Running marbling classifier"}
+        marbling_started = perf_counter()
         marbling_res = marbling_predictor.predict(
             model=model_manager.get_marbling_model(),
             tensor=tensor_224,
             device=device,
         )
+        marbling_inference_ms = round((perf_counter() - marbling_started) * 1000, 2)
+        yield {"type": "progress", "completed_stages": 5, "total_stages": 7, "stage": "Marbling classification complete"}
 
-        # 6. Fat ratio estimation (800x800)
-        fat_res = fat_estimator.estimate(pil_image)
+        # 6. Estimate visible fat only inside the shared foreground mask.
+        yield {"type": "progress", "completed_stages": 5, "total_stages": 7, "stage": "Calculating HSV fat ratio"}
+        fat_started = perf_counter()
+        fat_res = fat_estimator.estimate(pil_image, segmented=segmented)
+        fat_estimation_ms = round(
+            fat_segmentation_ms
+            - segmented.background_removal_ms
+            + (perf_counter() - fat_started) * 1000,
+            2,
+        )
+        yield {"type": "progress", "completed_stages": 6, "total_stages": 7, "stage": "Fat ratio calculation complete"}
 
         # 7. Compute MQS
         mqs = calculate_mqs(
@@ -162,6 +196,7 @@ async def predict_beef_quality(
         )
 
         # 8. Storage & Database persistence
+        yield {"type": "progress", "completed_stages": 6, "total_stages": 7, "stage": "Saving assessment"}
         image_url = await supabase_service.upload_image(
             user_id=user_id,
             image_bytes=image_bytes,
@@ -179,9 +214,10 @@ async def predict_beef_quality(
             fat_category=fat_res["category"],
             meat_quality_score=mqs,
         )
+        yield {"type": "progress", "completed_stages": 7, "total_stages": 7, "stage": "Assessment complete"}
 
         # 9. Return structured response
-        return PredictionResponseSchema(
+        result = PredictionResponseSchema(
             freshness=freshness_res["label"],
             freshness_confidence=freshness_res["confidence"],
             marbling=marbling_res["label"],
@@ -191,7 +227,12 @@ async def predict_beef_quality(
             meat_quality_score=mqs,
             assessment_id=assessment_id,
             image_url=image_url,
+            freshness_inference_ms=freshness_inference_ms,
+            marbling_inference_ms=marbling_inference_ms,
+            fat_estimation_ms=fat_estimation_ms,
+            background_removal_ms=segmented.background_removal_ms,
         )
+        yield {"type": "result", "data": result.model_dump()}
 
     except HTTPException:
         raise
@@ -201,6 +242,52 @@ async def predict_beef_quality(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Prediction pipeline failed: {str(e)}",
         )
+
+
+@router.post(
+    "/predict",
+    response_model=PredictionResponseSchema,
+    status_code=status.HTTP_200_OK,
+    summary="Assess beef quality from uploaded image",
+)
+async def predict_beef_quality(
+    file: UploadFile = File(..., description="JPEG or PNG image file of beef cut"),
+    authorization: Optional[str] = Header(None, description="Bearer <supabase_access_token>"),
+):
+    async for event in _predict_beef_quality_events(file, authorization):
+        if event["type"] == "result":
+            return PredictionResponseSchema(**event["data"])
+    raise HTTPException(status_code=500, detail="Prediction pipeline ended without a result")
+
+
+@router.post(
+    "/predict/stream",
+    status_code=status.HTTP_200_OK,
+    summary="Assess beef quality and stream processing progress",
+)
+async def predict_beef_quality_stream(
+    file: UploadFile = File(..., description="JPEG or PNG image file of beef cut"),
+    authorization: Optional[str] = Header(None, description="Bearer <supabase_access_token>"),
+):
+    async def stream_events():
+        try:
+            async for event in _predict_beef_quality_events(file, authorization):
+                if event["type"] == "result":
+                    yield f"event: result\ndata: {json.dumps(event['data'])}\n\n"
+                else:
+                    yield f"event: progress\ndata: {json.dumps(event)}\n\n"
+            yield "event: complete\ndata: {}\n\n"
+        except HTTPException as e:
+            yield (
+                "event: error\ndata: "
+                f"{json.dumps({'status': e.status_code, 'message': e.detail})}\n\n"
+            )
+
+    return StreamingResponse(
+        stream_events(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
 
 
 @router.get(

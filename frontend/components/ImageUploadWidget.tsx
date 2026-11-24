@@ -1,6 +1,6 @@
 "use client"
 
-import React, { useState, useRef, DragEvent, ChangeEvent } from "react"
+import React, { useState, useRef, useId, DragEvent, ChangeEvent } from "react"
 import { UploadCloud, Image as ImageIcon, X, AlertCircle } from "lucide-react"
 import { Button } from "@/components/ui/button"
 
@@ -22,6 +22,7 @@ export function ImageUploadWidget({
   const [selectedFile, setSelectedFile] = useState<File | null>(null)
   const [error, setError] = useState<string | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const fileInputId = useId()
 
   const validateAndSelectFile = (file: File) => {
     setError(null)
@@ -43,12 +44,23 @@ export function ImageUploadWidget({
     onImageSelected(file)
   }
 
-  const handleDrag = (e: DragEvent<HTMLDivElement>) => {
+  const handleDragEnter = (e: DragEvent<HTMLDivElement>) => {
     e.preventDefault()
     e.stopPropagation()
-    if (e.type === "dragenter" || e.type === "dragover") {
-      setDragActive(true)
-    } else if (e.type === "dragleave") {
+    setDragActive(true)
+  }
+
+  const handleDragOver = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.dataTransfer.dropEffect = "copy"
+    setDragActive(true)
+  }
+
+  const handleDragLeave = (e: DragEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    e.stopPropagation()
+    if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
       setDragActive(false)
     }
   }
@@ -93,33 +105,37 @@ export function ImageUploadWidget({
 
       {!previewUrl ? (
         <div
-          onDragEnter={handleDrag}
-          onDragOver={handleDrag}
-          onDragLeave={handleDrag}
+          onDragEnter={handleDragEnter}
+          onDragOver={handleDragOver}
+          onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          onClick={() => fileInputRef.current?.click()}
-          className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center min-h-[220px] ${
-            dragActive
-              ? "border-red-500 bg-red-500/5 scale-[1.01]"
-              : "border-border hover:border-red-400/60 hover:bg-muted/30"
-          }`}
         >
-          <input
-            ref={fileInputRef}
-            type="file"
-            accept="image/jpeg,image/png"
-            onChange={handleFileChange}
-            className="hidden"
-          />
-          <div className="w-12 h-12 rounded-xl bg-red-500/10 text-red-600 flex items-center justify-center mb-3">
-            <UploadCloud className="w-6 h-6" />
-          </div>
-          <h3 className="font-semibold text-sm text-foreground">
-            Click to upload or drag & drop beef cut image
-          </h3>
-          <p className="text-xs text-muted-foreground mt-1">
-            JPEG or PNG format (Maximum size {maxSizeMB}MB)
-          </p>
+          <label
+            htmlFor={fileInputId}
+            className={`relative border-2 border-dashed rounded-2xl p-8 text-center cursor-pointer transition-all duration-200 flex flex-col items-center justify-center min-h-[220px] ${
+              dragActive
+                ? "border-red-500 bg-red-500/5 scale-[1.01]"
+                : "border-border hover:border-red-400/60 hover:bg-muted/30"
+            }`}
+          >
+            <input
+              ref={fileInputRef}
+              id={fileInputId}
+              type="file"
+              accept="image/jpeg,image/png"
+              onChange={handleFileChange}
+              className="sr-only"
+            />
+            <div className="w-12 h-12 rounded-xl bg-red-500/10 text-red-600 flex items-center justify-center mb-3">
+              <UploadCloud className="w-6 h-6" />
+            </div>
+            <h3 className="font-semibold text-sm text-foreground">
+              Click to upload or drag & drop beef cut image
+            </h3>
+            <p className="text-xs text-muted-foreground mt-1">
+              JPEG or PNG format (Maximum size {maxSizeMB}MB)
+            </p>
+          </label>
         </div>
       ) : (
         <div className="relative rounded-2xl overflow-hidden border border-border shadow-md bg-muted/20">

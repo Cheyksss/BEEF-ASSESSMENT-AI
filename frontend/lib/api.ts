@@ -1,4 +1,4 @@
-import { PredictionResponse } from "@/types"
+import { PredictionProgress, PredictionResponse } from "@/types"
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:8000"
 
@@ -27,6 +27,7 @@ const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
 export async function predictBeefQuality(
   file: File,
   accessToken?: string,
+  onProgress?: (progress: PredictionProgress) => void,
   maxRetries = 3
 ): Promise<PredictionResponse> {
   let attempt = 0
@@ -42,7 +43,7 @@ export async function predictBeefQuality(
         headers["Authorization"] = `Bearer ${accessToken}`
       }
 
-      const response = await fetch(`${API_URL}/predict`, {
+      const response = await fetch(`${API_URL}/predict/stream`, {
         method: "POST",
         headers,
         body: formData,
@@ -53,8 +54,8 @@ export async function predictBeefQuality(
         const errorMessage =
           errorData.detail || `Server returned error status ${response.status}`
 
-        // Do not retry 400 (Bad Request) or 401 (Unauthorized)
-        if (response.status === 400 || response.status === 401) {
+        // Client errors are not transient, so retrying the same request cannot help.
+        if (response.status < 500) {
           throw new APIError(response.status, errorMessage)
         }
 
@@ -62,11 +63,55 @@ export async function predictBeefQuality(
         throw new APIError(response.status, errorMessage)
       }
 
-      return (await response.json()) as PredictionResponse
+      if (!response.body) {
+        throw new APIError(response.status, "The server did not provide a progress stream")
+      }
+
+      const reader = response.body.getReader()
+      const decoder = new TextDecoder()
+      let buffer = ""
+      let result: PredictionResponse | null = null
+
+      const processEvent = (eventText: string) => {
+        let eventType = "message"
+        const dataLines: string[] = []
+        for (const line of eventText.split(/\r?\n/)) {
+          if (line.startsWith("event:")) eventType = line.slice(6).trim()
+          if (line.startsWith("data:")) dataLines.push(line.slice(5).trim())
+        }
+        if (dataLines.length === 0) return
+
+        const data = JSON.parse(dataLines.join("\n"))
+        if (eventType === "progress") {
+          onProgress?.({
+            completed_stages: data.completed_stages,
+            total_stages: data.total_stages,
+            stage: data.stage,
+          })
+        } else if (eventType === "result") {
+          result = data as PredictionResponse
+        } else if (eventType === "error") {
+          throw new APIError(data.status, data.message)
+        }
+      }
+
+      while (true) {
+        const { done, value } = await reader.read()
+        buffer += decoder.decode(value, { stream: !done })
+        const events = buffer.split(/\r?\n\r?\n/)
+        buffer = events.pop() ?? ""
+        for (const eventText of events) processEvent(eventText)
+        if (done) break
+      }
+      if (buffer.trim()) processEvent(buffer)
+      if (!result) {
+        throw new APIError(response.status, "The assessment stream ended without a result")
+      }
+      return result
     } catch (err: any) {
       lastError = err
-      // If it's a client error (400, 401), re-throw immediately
-      if (err instanceof APIError && (err.status === 400 || err.status === 401)) {
+      // Client errors are not transient, so retrying the same request cannot help.
+      if (err instanceof APIError && err.status < 500) {
         throw err
       }
 

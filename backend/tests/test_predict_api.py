@@ -4,6 +4,7 @@ Validates schema completeness, authentication guards, input validation, and full
 """
 
 import io
+import json
 import pytest
 from PIL import Image
 from fastapi.testclient import TestClient
@@ -13,6 +14,7 @@ from unittest.mock import patch, AsyncMock
 from app.main import app
 from app.routes.predict import PredictionResponseSchema
 from app.models.loader import model_manager
+from app.cv.fat_estimator import SegmentedForeground
 
 
 @pytest.fixture(scope="module")
@@ -128,6 +130,61 @@ class TestPredictEndpointPipeline:
             assert 0.0 <= data["meat_quality_score"] <= 100.0
             assert data["assessment_id"] == "assessment-123-uuid"
             assert data["image_url"] == "https://mock.storage/test-user-uuid/beef.jpg"
+            for timing_field in (
+                "freshness_inference_ms",
+                "marbling_inference_ms",
+                "fat_estimation_ms",
+                "background_removal_ms",
+            ):
+                assert isinstance(data[timing_field], (int, float))
+                assert data[timing_field] >= 0
+
+    def test_streaming_prediction_reports_completed_stages(self, client, sample_image_bytes):
+        segmented = SegmentedForeground(
+            rgb=None,
+            mask=None,
+            crop=Image.new("RGB", (224, 224)),
+            background_removal_ms=12.5,
+        )
+        service = type("MockStorageService", (), {
+            "upload_image": AsyncMock(return_value="https://mock.storage/beef.jpg"),
+            "store_assessment": AsyncMock(return_value="assessment-stream-123"),
+        })()
+        with patch("app.routes.predict.fat_estimator.segment", return_value=segmented), \
+             patch("app.routes.predict.fat_estimator.estimate", return_value={
+                 "percent": 5.0, "category": "Small", "score": 5.0,
+             }), \
+             patch("app.routes.predict.perf_counter", side_effect=[
+                 1.0, 1.1, 2.0, 2.02, 3.0, 3.03, 4.0, 4.08,
+             ]), \
+             patch("app.routes.predict.preprocessor.preprocess_for_classifier", return_value=object()), \
+             patch("app.routes.predict.freshness_predictor.predict", return_value={
+                 "label": "Fresh", "confidence": 99.0, "score": 50,
+             }), \
+             patch("app.routes.predict.marbling_predictor.predict", return_value={
+                 "label": "modest", "confidence": 90.0, "score": 20,
+             }), \
+             patch("app.routes.predict.get_supabase_service", return_value=service):
+            response = client.post(
+                "/predict/stream",
+                files={"file": ("beef.jpg", sample_image_bytes, "image/jpeg")},
+            )
+
+        assert response.status_code == 200
+        assert response.headers["content-type"].startswith("text/event-stream")
+        events = [
+            line.removeprefix("data: ").strip()
+            for line in response.text.splitlines()
+            if line.startswith("data: ")
+        ]
+        progress_events = [json.loads(event) for event in events[:-2]]
+        assert progress_events[0]["completed_stages"] == 0
+        assert progress_events[-1]["completed_stages"] == 7
+        assert all(event["total_stages"] == 7 for event in progress_events)
+        assert "event: result" in response.text
+        assert '"background_removal_ms": 12.5' in response.text
+        result = json.loads(events[-2])
+        assert result["fat_estimation_ms"] == 167.5
 
 
 @pytest.mark.property
