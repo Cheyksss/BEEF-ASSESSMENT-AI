@@ -139,8 +139,8 @@ async def _predict_beef_quality_events(
             )
 
     try:
-        # Segment once before any quality model runs. The same foreground is used
-        # for both CNN inputs and visible-fat measurement.
+        # Segment once before classification to validate foreground presence and reuse
+        # the isolated meat mask for HSV visible-fat measurement.
         yield {"type": "progress", "completed_stages": 1, "total_stages": 7, "stage": "Removing background"}
         fat_segmentation_started = perf_counter()
         try:
@@ -152,8 +152,8 @@ async def _predict_beef_quality_events(
 
         device = model_manager.get_device()
 
-        # 5. Classify the isolated foreground crop instead of the full photograph.
-        tensor_224 = preprocessor.preprocess_for_classifier(segmented.crop, device=device)
+        # 5. Classify the full photograph to match how both ReXNet-150 models were trained.
+        tensor_224 = preprocessor.preprocess_for_classifier(pil_image, device=device)
         yield {"type": "progress", "completed_stages": 3, "total_stages": 7, "stage": "Image prepared for classifiers"}
 
         yield {"type": "progress", "completed_stages": 3, "total_stages": 7, "stage": "Running freshness classifier"}
